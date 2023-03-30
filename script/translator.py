@@ -248,7 +248,9 @@ class GoogleTranslator(BaseTranslator):
     def __init__(self):
         super(GoogleTranslator, self).__init__("google")
         self._host = "translate.googleapis.com"
-        self._cnhost = "translate.google.com.hk"
+#        self._cnhost = "translate.google.com.hk"
+#        self._cnhost = "translate.google.cn"
+        self._cnhost = "translate.google.com"
 
     def get_url(self, sl, tl, qry):
         http_host = self._cnhost if "zh" in tl else self._host
@@ -472,6 +474,66 @@ class YoudaoTranslator(BaseTranslator):
         return explains
 
 
+class BaiduTranslator(BaseTranslator):
+    def __init__(self):
+        super(BaiduTranslator, self).__init__("baidu")
+        self.url = "https://fanyi-api.baidu.com/api/trans/vip/translate"
+        self.appid = "20230328001618673"
+        self.key = "2ofrdbZPOzkzDOnKoHKu"
+
+    def sign(self, text, salt):
+        s = self.appid + text + salt + self.key
+        return self.md5sum(s)
+
+    def translate(self, sl, tl, text, options=None):
+        salt = str(int(time.time() * 1000) + random.randint(0, 10))
+        sign = self.sign(url_quote(text), salt)
+        header = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Referer": "https://fanyi-api.baidu.com/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 6.2; rv:51.0) Gecko/20100101 Firefox/51.0",
+        }
+        data = {
+            "from": sl,
+            "to": tl,
+            "appid": self.appid,
+            "salt": salt,
+            "sign": sign,
+            "q": url_quote(text),
+        }
+        resp = self.http_post(self.url, data, header)
+        if not resp:
+            return
+        try:
+            obj = json.loads(resp)
+        except:
+            return None
+
+        res = self.create_translation(sl, tl, text)
+        res["paraphrase"] = self.get_paraphrase(obj)
+        res["explains"] = self.get_explains(obj)
+        return res
+
+    def get_paraphrase(self, obj):
+        translation = ""
+        t = obj.get("trans_result")
+        if t:
+            for n in t:
+                translation = n.get("dst")
+
+        return translation
+
+    def get_explains(self, obj):
+        explains = []
+        if "smartResult" in obj:
+            smarts = obj["smartResult"]["entries"]
+            for entry in smarts:
+                if entry:
+                    entry = entry.replace("\r", "")
+                    entry = entry.replace("\n", "")
+                    explains.append(entry)
+        return explains
+
 class TranslateShell(BaseTranslator):
     def __init__(self):
         super(TranslateShell, self).__init__("trans")
@@ -576,6 +638,7 @@ ENGINES = {
     "sdcv": SdcvShell,
     "trans": TranslateShell,
     "youdao": YoudaoTranslator,
+    "baidu": BaiduTranslator,
 }
 
 
@@ -605,6 +668,7 @@ def main():
     text = re.sub(r"([a-z])([A-Z][a-z])", r"\1 \2", text)
     text = re.sub(r"([a-zA-Z])_([a-zA-Z])", r"\1 \2", text).lower()
     engines = args.engines
+
     to_lang = args.target_lang
     from_lang = args.source_lang
     if args.options:
@@ -685,5 +749,9 @@ if __name__ == "__main__":
         r = t.translate("auto", "zh", "naive")
         print(r)
 
+    def test8():
+        t = BaiduTranslator()
+        r = t.translate("en", "zh", "naive")
+        print(r)
     # test3()
     main()
